@@ -3,7 +3,7 @@
 
 extern crate rustirc;
 use rustirc::{Connection, IrcEventHandler, IrcWriter, IrcEvent};
-use std::io::{TcpStream, IoResult, timer, IoError, BufferedStream};
+use std::io::{TcpStream, IoResult, timer, IoError, BufferedReader};
 use std::sync::{Mutex, Arc};
 use poll::Poll;
 use std::from_str::from_str;
@@ -15,37 +15,8 @@ macro_rules! ioassume(
     ($e:expr, $msg:expr) => (match $e { Ok(e) => e, Err(msg) => fail!($msg, msg) })
 )
 
-
-
-pub struct ProtocollingStream {
-	inner: BufferedStream<TcpStream>
-}
-
-impl ProtocollingStream {
-	pub fn new(inner: TcpStream) -> ProtocollingStream {
-		ProtocollingStream {inner: BufferedStream::new(inner)}
-	}
-}
-
-impl std::io::Writer for ProtocollingStream {
-	fn write(&mut self, buf: &[u8]) -> IoResult<()> {
-		try!(self.inner.write(buf));
-		self.inner.flush()
-	}
-}
-
-impl rustirc::CloseWrite for ProtocollingStream {
-	fn close_write(&mut self) -> IoResult<()> {
-		self.inner.close_write()
-	}
-}
-
-impl Clone for ProtocollingStream {
-	fn clone(&self) -> ProtocollingStream { ProtocollingStream {inner: self.inner.clone()} }
-}
-
 pub struct NickGenerator {
-	basename: &'static str,
+	basename: String,
 	attempt: uint
 }
 
@@ -108,8 +79,8 @@ struct Bot {
 
 impl Bot {
 	fn is_command<'a>(&self, text: &'a str) -> Option<(&'a str, &'a str)> {
-		if text.slice_to(1) == self.cmd_marker {
-			let mut iter = text.slice_from(1).splitn(1, |c: char| c == ' ');
+		if text.starts_with(self.cmd_marker) {
+			let mut iter = text.slice_from(self.cmd_marker.len()).splitn(1, |c: char| c == ' ');
 			let cmd = match iter.next() {
 				Some(x) => x,
 				None => fail!("str.split yielded less than one slice")
@@ -181,7 +152,7 @@ impl Bot {
 			return ctx.reply(format!("choose a number from 1 and {}", poll.num_answers()).as_slice());
 		}
 		poll.add_vote(num);
-		Ok(())
+		ctx.private_reply("vote counted")
 	}
 	fn end_poll<'a, W: IrcWriter>(&mut self, mut ctx: MessageContext<'a, W>) -> IoResult<()> {
 		{
@@ -226,14 +197,50 @@ impl IrcEventHandler for Bot {
 }
 
 pub fn main() {
-	let tcp = ioassume!(TcpStream::connect("irc.quakenet.org", 6667), "TCP Connection failed: {}");
-	let protocol = ProtocollingStream::new(tcp);
+	let args = std::os::args();
+	let mut iter = args.iter();
+	let mut name = "CrystalGBot".to_string();
+	let mut server = "irc.quakenet.org".to_string();
+	let mut port = 6667u16;
+	let mut channel = "#crystalgamma".to_string();
+	iter.next();
+	loop {
+		match iter.next() {
+			Some(arg) => match arg.as_slice() {
+				"-s" | "--server" => match iter.next() {
+					Some(serv) => { server = serv.clone(); },
+					None => fail!("incomplete command line: expecting server name after {}", arg)
+				},
+				"-p" | "--port" => match iter.next() {
+					Some(s) => match from_str(s.as_slice()) {
+						Some(num) => { port = num; }
+						None => fail!("{} is not a valid port number", s)
+					},
+					None => fail!("incomplete command line: expecting number after {}", arg)
+				},
+				"-n" | "--nick" | "--name" => match iter.next() {
+					Some(nick) => { name = nick.clone(); },
+					None =>	fail!("incomplete command line: expecting nick name after {}", arg)
+				},
+				"-c" | "--channel" => match iter.next() {
+					Some(chan) => { channel = chan.clone(); },
+					None =>	fail!("incomplete command line: expecting channel name after {}", arg)
+				},
+				_ => fail!("unknown command line option: {}", arg)
+			},
+			None => break
+		}
+	}
+	let tcp = ioassume!(TcpStream::connect(server.as_slice(), port), "TCP Connection failed: {}");
 	let mut conn = ioassume!(Connection::connect(
-			protocol,
-			NickGenerator {basename: "CrystalGBot", attempt:0},
-			"CrystalGBot".to_string(),
+			BufferedReader::new(tcp.clone()),tcp,
+			NickGenerator {basename: name.clone(), attempt:0},
+			name,
 			"CrystalGamma experimental chat bot implemented in Rust".to_string(),
-			Bot {cmd_marker: "!", poll: Arc::new(Mutex::new(None)), channel: "#crystalgamma".to_string()}),
-		"IRC connection failed: {}");
+			Bot {
+				cmd_marker: "~",
+				poll: Arc::new(Mutex::new(None)),
+				channel: channel
+			}), "IRC connection failed: {}");
 	ioassume!(conn.eventloop(),"main loop failed: {}");
 }
