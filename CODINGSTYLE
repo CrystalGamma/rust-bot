@@ -1,0 +1,35 @@
+Coding style for rust-bot
+=========================
+
+Normally I would refer you to the Linux Kernel coding style (https://www.kernel.org/doc/Documentation/CodingStyle),
+which is very readable, but Rust is a very different language with very different requirements from C.
+For example, the functional programming style of the language encourages deeper nesting than C does.
+These are the main rules for inclusion of your code into the rust-bot mainline codebase:
+
+Line length
+-----------
+
+Code lines must be at most 120 places long.
+
+Indentation
+-----------
+
+Indentation is 1 tab character. Tabs are considered to be 8 characters wide. See the Linux Coding Style description
+for the rationale.
+
+Braces
+------
+
+Generally, an opening curly brace ({) is not on an own line, while a closing one is.
+The content of the braces is on an own line.
+
+In some cases, the entire set of braces (including their content) may be collapsed into a single line,
+if doing so does not violate the line length requirement.
+
+These cases are:
+
+* the body of a zero-statement "getter" function or constructor.
+  In this case there shall be one space on the inside of the braces:
+  > pub fn value(&self) -> Type { self.member }
+* a struct initialiser. In this case there shall be no spaces between the braces and their content:
+  > pub fn new(val1: Type1, val2: Type2) -> Struct { Struct {member1: val1, member2: val2} }
