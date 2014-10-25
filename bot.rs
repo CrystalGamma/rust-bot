@@ -31,7 +31,7 @@ impl Iterator<String> for NickGenerator {
 	}
 }
 
-pub struct MessageContext<'a, W: IrcWriter + 'a> {
+pub struct MessageContext<'a, W: IrcWriter> {
 	write: &'a mut W,
 	sender: &'a str,
 	channel: Option<&'a str>
@@ -41,13 +41,13 @@ impl<'a, W: IrcWriter> MessageContext<'a, W> {
 	pub fn new(write: &'a mut W, sender: &'a str, channel: Option<&'a str>) -> MessageContext<'a, W> {
 		MessageContext {write: write, sender: sender, channel: channel}
 	}
-	pub fn reply(&mut self, text: &str) -> IoResult<()> {
+	pub fn reply(&self, text: &str) -> IoResult<()> {
 		match self.channel {
 			Some(channel) => self.write.channel_notice(channel, text),
 			None => self.write.notice(self.sender, text)
 		}
 	}
-	pub fn channel_reply(&mut self, text: &str) -> IoResult<()> {
+	pub fn channel_reply(&self, text: &str) -> IoResult<()> {
 		match self.channel {
 			Some(channel) => self.write.channel_notice(channel, text),
 			None => Err(IoError {kind: std::io::OtherIoError,
@@ -55,7 +55,7 @@ impl<'a, W: IrcWriter> MessageContext<'a, W> {
 					detail: None})
 		}
 	}
-	pub fn private_reply(&mut self, text: &str) -> IoResult<()> {
+	pub fn private_reply(&self, text: &str) -> IoResult<()> {
 		self.write.notice(self.sender, text)
 	}
 	pub fn clone_inner(&self) -> W {
@@ -94,7 +94,7 @@ impl Bot {
 			None
 		}
 	}
-	fn start_poll<'a, W: IrcWriter>(&mut self, mut ctx: MessageContext<'a, W>, args: &str) -> IoResult<()> {
+	fn start_poll<'a, W: IrcWriter>(&mut self, ctx: MessageContext<'a, W>, args: &str) -> IoResult<()> {
 		let new_poll: Poll = match from_str(args) {
 				Some(x) => x,
 				None => {
@@ -102,7 +102,7 @@ impl Bot {
 				}
 			};
 		let dur = new_poll.duration();
-		let write = ctx.unwrap();
+		let write: &mut W = ctx.unwrap();
 		try!(write.channel_notice(self.channel.as_slice(), format!("Poll started: {}", new_poll.name()).as_slice()));
 		let mut i = 1u;
 		for (_, name) in new_poll.answers() {
@@ -134,7 +134,7 @@ impl Bot {
 		});
 		Ok(())
 	}
-	fn vote<'a, W: IrcWriter>(&mut self, mut ctx: MessageContext<'a, W>, args: &str) -> IoResult<()> {
+	fn vote<'a, W: IrcWriter>(&mut self, ctx: MessageContext<'a, W>, args: &str) -> IoResult<()> {
 		let num: uint = match from_str::<uint>(args.trim_chars(|c: char| c.is_whitespace())) {
 			Some(x) => x - 1u,
 			None => {
@@ -154,7 +154,7 @@ impl Bot {
 		poll.add_vote(num);
 		ctx.private_reply("vote counted")
 	}
-	fn end_poll<'a, W: IrcWriter>(&mut self, mut ctx: MessageContext<'a, W>) -> IoResult<()> {
+	fn end_poll<'a, W: IrcWriter>(&mut self, ctx: MessageContext<'a, W>) -> IoResult<()> {
 		{
 			let mut poll = self.poll.lock();
 			let result = poll.clone();
@@ -171,7 +171,7 @@ impl Bot {
 		self.poll = Arc::new(Mutex::new(None));
 		Ok(())
 	}
-	fn handle_command<'a, W: IrcWriter>(&mut self, mut ctx: MessageContext<'a, W>, cmd: &str, args: &str) -> IoResult<()> {
+	fn handle_command<'a, W: IrcWriter>(&mut self, ctx: MessageContext<'a, W>, cmd: &str, args: &str) -> IoResult<()> {
 		match cmd {
 			"kill" => ctx.unwrap().quit(),
 			"poll" => self.start_poll(ctx, args),
